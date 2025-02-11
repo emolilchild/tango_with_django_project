@@ -10,12 +10,12 @@ def populate():
     python_pages = [
         {'title': 'Official Python Tutorial',
          'url':'http://docs.python.org/3/tutorial/',
-         'views': 45},
+         'views':45},
         {'title':'How to Think like a Computer Scientist',
          'url':'http://www.greenteapress.com/thinkpython/',
          'views':30},
         {'title':'Learn Python in 10 Minutes',
-         'url':'http:www.korokithakis.net/tutorials/python/',
+         'url':'http://www.korokithakis.net/tutorials/python/',
          'views':900}]
     django_pages = [
         {'title':'Official Django Tutorial',
@@ -48,7 +48,7 @@ def populate():
         for p in Page.objects.filter(category=c):
             print(f'- {c}: {p}')
 
-def add_page(cat, title, url, views=0):
+def add_page(cat, title, url, views=1):
     p = Page.objects.get_or_create(category=cat, title=title, url=url, views=views)[0]
     p.url=url
     p.views=views
