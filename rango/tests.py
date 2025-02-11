@@ -1,16 +1,16 @@
 # 
 # Tango with Django 2 Progress Tests
 # By Leif Azzopardi and David Maxwell
-# With assistance from Enzo Roiz (https://github.com/enzoroiz)
+# With assistance from Enzo Roiz (https://github.com/enzoroiz) and Gerardo A-C (https://github.com/gerac83)
 # 
-# Chapter 6 -- Models, Templates and Views
-# Last updated: October 15th, 2019
+# Chapter 7 -- Forms
+# Last updated: January 7th, 2020
 # Revising Author: David Maxwell
 # 
 
 #
 # In order to run these tests, copy this module to your tango_with_django_project/rango/ directory.
-# Once this is complete, run $ python manage.py test rango.tests_chapter6
+# Once this is complete, run $ python manage.py test rango.tests_chapter7
 # 
 # The tests will then be run, and the output displayed -- do you pass them all?
 # 
@@ -18,260 +18,218 @@
 #
 
 import os
-import re  # We use regular expressions to do more in-depth checks on generated HTML output from views.
-import warnings
-import importlib
+import inspect
 from rango.models import Category, Page
 from populate_rango import populate
-from django.urls import reverse
 from django.test import TestCase
-from django.conf import settings
-from django.db.models.query import QuerySet
+from django.urls import reverse, resolve
+from django.forms import fields as django_fields
 
 FAILURE_HEADER = f"{os.linesep}{os.linesep}{os.linesep}================{os.linesep}TwD TEST FAILURE =({os.linesep}================{os.linesep}"
 FAILURE_FOOTER = f"{os.linesep}"
 
 
-class Chapter6PopulationScriptTest(TestCase):
+class Chapter7FormClassTests(TestCase):
     """
-    A few simple tests to examine whether the population script has been updated to include the requested changes (views for pages).
+    Do the Form classes exist, and do they contain the correct instance variables?
     """
-    def setUp(self):
-        populate()
+    def test_module_exists(self):
+        """
+        Tests that the forms.py module exists in the expected location.
+        """
+        project_path = os.getcwd()
+        rango_app_path = os.path.join(project_path, 'rango')
+        forms_module_path = os.path.join(rango_app_path, 'forms.py')
+
+        self.assertTrue(os.path.exists(forms_module_path), f"{FAILURE_HEADER}We couldn't find Rango's new forms.py module. This is required to be created at the top of Section 7.2. This module should be storing your two form classes.{FAILURE_FOOTER}")
     
-    def test_page_objects_have_views(self):
+    def test_category_form_class(self):
         """
-        Checks the basic requirement that all pages must have a positive view count.
+        Does the CategoryForm implementation exist, and does it contain the correct instance variables?
         """
-        pages = Page.objects.filter()
+        # Check that we can import CategoryForm.
+        import rango.forms
+        self.assertTrue('CategoryForm' in dir(rango.forms), f"{FAILURE_HEADER}The class CategoryForm could not be found in Rango's forms.py module. Check you have created this class in the correct location, and try again.{FAILURE_FOOTER}")
 
-        for page in pages:
-            self.assertTrue(page.views > 0, f"{FAILURE_HEADER}The page '{page.title}' has a negative/zero view count. The exercises for Chapter 6 stated that all view values must be greater than zero. Update your population script, and try again.{FAILURE_FOOTER}")
+        from rango.forms import CategoryForm
+        category_form = CategoryForm()
 
+        # Do you correctly link Category to CategoryForm?
+        self.assertEqual(type(category_form.__dict__['instance']), Category, f"{FAILURE_HEADER}The CategoryForm does not link to the Category model. Have a look in the CategoryForm's nested Meta class for the model attribute.{FAILURE_FOOTER}")
 
-class Chapter6IndexViewTests(TestCase):
-    """
-    A series of tests that examine the behaviour of the index view and its corresponding template.
-    Tests to see if the context dictionary is correctly formed, and whether the response is correct, too.
-    For these tests, we rely on the populate_rango module. We assume that this is now fully correct and working.
-    If tests fail and you can't understand why, maybe it's worth checking out your population script!
-    And yes, we assume that all exercises have been completed, too.
-    """
-    def setUp(self):
-        populate()
-        self.response = self.client.get(reverse('rango:index'))
-        self.content = self.response.content.decode()
-    
-    def test_template_filename(self):
-        """
-        Still using a template?
-        """
-        self.assertTemplateUsed(self.response, 'rango/index.html', f"{FAILURE_HEADER}Are you using index.html for your index() view? Why not?!{FAILURE_FOOTER}")
+        # Now check that all the required fields are present, and of the correct form field type.
+        fields = category_form.fields
 
-    def test_index_context_dictionary(self):
-        """
-        Runs some assertions to check if the context dictionary has the correct key/value pairings.
-        """
-        expected_boldmessage = 'Crunchy, creamy, cookie, candy, cupcake!'
-        expected_categories_order = list(Category.objects.order_by('-likes')[:5])
-        expected_pages_order = list(Page.objects.order_by('-views')[:5])  # From the exercises section of Chapter 6 -- we cannot assume a set order, because the developer can set the number of views to whatever they wish.
-
-        # Does the boldmessage still exist? A surprising number of people delete it here.
-        self.assertTrue('boldmessage' in self.response.context, f"{FAILURE_HEADER}The 'boldmessage' variable couldn't be found in the context dictionary for the index() view. Did you delete it?{FAILURE_FOOTER}")
-        self.assertEquals(expected_boldmessage, self.response.context['boldmessage'], f"{FAILURE_HEADER}Where did {expected_boldmessage} go in the index() view?{FAILURE_FOOTER}")
-
-        # Check that categories exists in the context dictionary, that it references the correct objects, and the order is spot on.
-        self.assertTrue('categories' in self.response.context, f"{FAILURE_HEADER}We couldn't find a 'categories' variable in the context dictionary within the index() view. Check the instructions in the book, and try again.{FAILURE_FOOTER}")
-        self.assertEqual(type(self.response.context['categories']), QuerySet, f"{FAILURE_HEADER}The 'categories' variable in the context dictionary for the index() view didn't return a QuerySet object as expected.{FAILURE_FOOTER}")
-        self.assertEqual(expected_categories_order, list(self.response.context['categories']), f"{FAILURE_HEADER}Incorrect categories/category order returned from the index() view's context dictionary -- expected {expected_categories_order}; got {list(self.response.context['categories'])}.{FAILURE_FOOTER}")
-
-        # Repeat, but for the pages variable. Note that order cannot be verfified (no instructions in book to use certain values).
-        self.assertTrue('pages' in self.response.context, f"{FAILURE_HEADER}We couldn't find a 'pages' variable in the index() view's context dictionary. Did you complete the Chapter 6 exercises?{FAILURE_FOOTER}")
-        self.assertEqual(type(self.response.context['pages']), QuerySet, f"{FAILURE_HEADER}The 'pages' variable in the index() view's context dictionary doesn't return a QuerySet as expected.{FAILURE_FOOTER}")
-        self.assertEqual(expected_pages_order, list(self.response.context['pages']), f"{FAILURE_HEADER}The 'pages' context dictionary variable for the index() view didn't return the QuerySet we were expectecting: got {list(self.response.context['pages'])}, expected {expected_pages_order}. Did you apply the correct ordering to the filtered results?{FAILURE_FOOTER}")
-    
-    def test_index_categories(self):
-        """
-        Checks the response generated by the index() view -- does it render the categories correctly?
-        Regular expressions are used here (yikes) to try and be as fair as possible when checking the markup received from the developer's project.
-        """
-        category_li_entries_regex = [  # 0 = regex match, 1 = title of category, 2 = sanitised markup for error message
-            [r'<li>(\s*|\n*)<a(\s+)href(\s*)=(\s*)("/rango/category/python/"|\'/rango/category/python/\')(\s*)>(\s*|\n*)Python(\s*|\n*)</a>(\s*|\n*)</li>', 'Python', '<li><a href="/rango/category/python/">Python</a></li>'],
-            [r'<li>(\s*|\n*)<a(\s+)href(\s*)=(\s*)("/rango/category/django/"|\'/rango/category/django/\')(\s*)>(\s*|\n*)Django(\s*|\n*)</a>(\s*|\n*)</li>', 'Django', '<li><a href="/rango/category/django/">Django</a></li>'],
-            [r'<li>(\s*|\n*)<a(\s+)href(\s*)=(\s*)("/rango/category/other-frameworks/"|\'/rango/category/other-frameworks/\')(\s*)>(\s*|\n*)Other Frameworks(\s*|\n*)</a>(\s*|\n*)</li>', 'Other Frameworks', '<li><a href="/rango/category/other-frameworks/">Other Frameworks</a></li>'],
-        ]
-
-        # Check for the presence of each entry.
-        for entry in category_li_entries_regex:
-            self.assertTrue(re.search(entry[0], self.content), f"{FAILURE_HEADER}We couldn't find the expected markup '{entry[2]}' (for the {entry[1]} category) in the response of your index() view. Check your template, and try again.{FAILURE_FOOTER}")
-    
-    def test_index_pages(self):
-        """
-        Checks the response generated by the index() view -- does it render the pages correctly?
-        As you can set view values to whatever you like for pages (in the population script), we need to be a bit more clever working out what five of the pages should be displayed.
-        """
-        page_li_entries_regex = {
-            'Official Python Tutorial': r'<li>(\s*|\n*)<a(\s+)href(\s*)=(\s*)("http://docs.python.org/3/tutorial/"|\'http://docs.python.org/3/tutorial/\')(\s*)>(\s*|\n*)Official Python Tutorial(\s*|\n*)</a>(\s*|\n*)</li>',
-            'How to Think like a Computer Scientist': r'<li>(\s*|\n*)<a(\s+)href(\s*)=(\s*)("http://www.greenteapress.com/thinkpython/"|\'http://www.greenteapress.com/thinkpython/\')(\s*)>(\s*|\n*)How to Think like a Computer Scientist(\s*|\n*)</a>(\s*|\n*)</li>',
-            'Learn Python in 10 Minutes': r'<li>(\s*|\n*)<a(\s+)href(\s*)=(\s*)("http://www.korokithakis.net/tutorials/python/"|\'http://www.korokithakis.net/tutorials/python/\')(\s*)>(\s*|\n*)Learn Python in 10 Minutes(\s*|\n*)</a>(\s*|\n*)</li>',
-            'Official Django Tutorial': r'<li>(\s*|\n*)<a(\s+)href(\s*)=(\s*)("https://docs.djangoproject.com/en/2.1/intro/tutorial01/"|\'https://docs.djangoproject.com/en/2.1/intro/tutorial01/\')(\s*)>(\s*|\n*)Official Django Tutorial(\s*|\n*)</a>(\s*|\n*)</li>',
-            'Django Rocks': r'<li>(\s*|\n*)<a(\s+)href(\s*)=(\s*)("http://www.djangorocks.com/"|\'http://www.djangorocks.com/\')(\s*)>(\s*|\n*)Django Rocks(\s*|\n*)</a>(\s*|\n*)</li>',
-            'How to Tango with Django': r'<li>(\s*|\n*)<a(\s+)href(\s*)=(\s*)("http://www.tangowithdjango.com/"|\'http://www.tangowithdjango.com/\')(\s*)>(\s*|\n*)How to Tango with Django(\s*|\n*)</a>(\s*|\n*)</li>',
-            'Bottle': r'<li>(\s*|\n*)<a(\s+)href(\s*)=(\s*)("http://bottlepy.org/docs/dev/"|\'http://bottlepy.org/docs/dev/\')(\s*)>(\s*|\n*)Bottle(\s*|\n*)</a>(\s*|\n*)</li>',
-            'Flask': r'<li>(\s*|\n*)<a(\s+)href(\s*)=(\s*)("http://flask.pocoo.org"|\'http://flask.pocoo.org\')(\s*)>(\s*|\n*)Flask(\s*|\n*)</a>(\s*|\n*)</li>',
+        expected_fields = {
+            'name': django_fields.CharField,
+            'views': django_fields.IntegerField,
+            'likes': django_fields.IntegerField,
+            'slug': django_fields.CharField,
         }
 
-        expected_pages_order = list(Page.objects.order_by('-views')[:5])
-        expected_pages_li = []
+        for expected_field_name in expected_fields:
+            expected_field = expected_fields[expected_field_name]
 
-        # Populate expected_pages_li, picking out the entry from page_li_entries_regex.
-        for expected_page in expected_pages_order:
-            expected_pages_li.append(page_li_entries_regex[expected_page.title])
+            self.assertTrue(expected_field_name in fields.keys(), f"{FAILURE_HEADER}The field '{expected_field_name}' was not found in your CategoryForm implementation. Check you have all required fields, and try again.{FAILURE_FOOTER}")
+            self.assertEqual(expected_field, type(fields[expected_field_name]), f"{FAILURE_HEADER}The field '{expected_field_name}' in CategoryForm was not of the expected type '{type(fields[expected_field_name])}'.{FAILURE_FOOTER}")
+
+class Chapter7CategoryFormAncillaryTests(TestCase):
+    """
+    Performs checks to see if all the additional requirements in Chapter 7 for adding a CategoryForm have been implemented correctly.
+    Checks URL mappings and server output.
+    """
+    def test_add_category_url_mapping(self):
+        """
+        Tests whether the URL mapping for adding a category is resolvable.
+        """
+        try:
+            resolved_name = resolve('/rango/add_category/').view_name
+        except:
+            resolved_name = ''
         
-        # Now we have the five entries regex to match, we can loop over and check each one exists.
-        for expected_regex in expected_pages_li:
-            print(self.content)
-            self.assertTrue(re.search(expected_regex, self.content), f"{FAILURE_HEADER}Checks for the top five pages in the index() view's response failed. Check you are using the correct list of objects, the correct HTML markup, and try again. '{expected_regex}'{FAILURE_FOOTER}")
+        self.assertEqual(resolved_name, 'rango:add_category', f"{FAILURE_HEADER}The lookup of URL '/rango/add_category/' didn't return a mapping name of 'rango:add_category'. Check you have the correct URL mapping for adding a category, and try again.{FAILURE_FOOTER}")
+    
+    def test_index_link_added(self):
+        """
+        Checks whether a link has been added as required on the index page, taking a user to the add category page.
+        """
+        response = self.client.get(reverse('rango:index'))
+        content = response.content.decode()
+
+        self.assertTrue('<a href="/rango/add_category/">Add a New Category</a><br />' in content)
+
+    def test_add_category_template(self):
+        """
+        Checks whether a template was used for the add_category() view.
+        """
+        response = self.client.get(reverse('rango:add_category'))
+        self.assertTemplateUsed(response, 'rango/add_category.html', f"{FAILURE_HEADER}The add_category.html template is not used for the add_category() view. The specification requires this.{FAILURE_FOOTER}")
+
+    def test_add_category_form_response(self):
+        """
+        Checks the response from the initial add category response (i.e. check the page/form is correct).
+        """
+        response = self.client.get(reverse('rango:add_category'))
+        context = response.context
+        content = response.content.decode()
+
+        self.assertTrue('form' in context)
+
+        self.assertTrue('<h1>Add a Category</h1>' in content, f"{FAILURE_HEADER}Couldn't find 'Add a Category' header in the add_category() response. Check the template add_category.html.{FAILURE_FOOTER}")
+        self.assertTrue('name="name"' in content, f"{FAILURE_HEADER}We couldn't find the form field 'name' in the rendered add_category() response. Check that your form is being created correctly.{FAILURE_FOOTER}")
+        self.assertTrue('<input type="submit" name="submit" value="Create Category" />' in content, f"{FAILURE_HEADER}Couldn't find the button for 'Create Category' in the add_category() response. Check the template add_category.html.{FAILURE_FOOTER}")
+        self.assertTrue('action="/rango/add_category/"' in content, f"{FAILURE_HEADER}Couldn't find the correct action URL for the form in add_category.html. Check that the correct URL is provided!{FAILURE_FOOTER}")
+    
+    def test_add_category_functionality(self):
+        """
+        Adds a category using the form, submits the request, and checks that the new category then exists.
+        """
+        self.client.post(reverse('rango:add_category'),
+                         {'name': 'Erlang', 'views': 0, 'likes': 0})
         
-    def test_index_response_titles(self):
-        """
-        Checks whether the correct titles are used (including <h2> tags) for categories and pages.
-        This is listed as an exercise at the end of Chapter 6.
-        """
-        expected_category_h2 = '<h2>Most Liked Categories</h2>'
-        expected_page_h2 = '<h2>Most Viewed Pages</h2>'
-
-        self.assertIn(expected_category_h2, self.content, f"{FAILURE_HEADER}We couldn't find the markup '{expected_category_h2}' in your index.html template. Check you completed the Chapter 6 exercises as requested, and try again.{FAILURE_FOOTER}")
-        self.assertIn(expected_page_h2, self.content, f"{FAILURE_HEADER}We couldn't find the markup '{expected_page_h2}' in your index.html template. Check you completed the Chapter 6 exercises as requested, and try again.{FAILURE_FOOTER}")
-
-
-class Chapter6NoItemsIndexViewTests(TestCase):
-    """
-    A few tests to complement the Chapter6IndexViewTests.
-    This time, we purposefully do not prepopulate the sample database with data from populate_rango.
-    As such, these tests examine whether the app being tested produces the correct output when no categories/pages are present.
-    """
-    def setUp(self):
-        self.response = self.client.get(reverse('rango:index'))
-        self.content = self.response.content.decode()
-
-    def test_empty_index_context_dictionary(self):
-        """
-        Runs assertions on the context dictionary, ensuring the categories and pages variables exist, but return empty (zero-length) QuerySet objects.
-        """
-        self.assertTrue('categories' in self.response.context, f"{FAILURE_HEADER}The 'categories' variable does not exist in the context dictionary for index(). (Empty check){FAILURE_FOOTER}")
-        self.assertEqual(type(self.response.context['categories']), QuerySet, f"{FAILURE_HEADER}The 'categories' variable in the context dictionary for index() does yield a QuerySet object. (Empty check){FAILURE_FOOTER}")
-        self.assertEqual(len(self.response.context['categories']), 0, f"{FAILURE_HEADER}The 'categories' variable in the context dictionary for index() is not empty. (Empty check){FAILURE_FOOTER}")
-
-        self.assertTrue('pages' in self.response.context, f"{FAILURE_HEADER}The 'pages' variable does not exist in the context dictionary for index(). (Empty check){FAILURE_FOOTER}")
-        self.assertEqual(type(self.response.context['pages']), QuerySet, f"{FAILURE_HEADER}The 'pages' variable in the context dictionary for index() does yield a QuerySet object. (Empty check){FAILURE_FOOTER}")
-        self.assertEqual(len(self.response.context['pages']), 0, f"{FAILURE_HEADER}The 'pages' variable in the context dictionary for index() is not empty. (Empty check){FAILURE_FOOTER}")
+        categories = Category.objects.filter(name='Erlang')
+        self.assertEqual(len(categories), 1, f"{FAILURE_HEADER}When adding a new category, it does not appear in the list of categories after being created. Check your add_category() view as the start of a debugging point.{FAILURE_FOOTER}")
     
-    def test_empty_index_response(self):
+    def test_category_exists(self):
         """
-        Checks to see whether the correct messages appear for no categories and pages.
+        Attempts to add a category that already exists.
         """
-        self.assertIn('<strong>There are no categories present.</strong>', self.content, f"{FAILURE_HEADER}When no categories are present, we can't find the required '<strong>There are no categories present.</strong>' markup in your index() view's output.{FAILURE_FOOTER}")
-        self.assertIn('<strong>There are no pages present.</strong>', self.content, f"{FAILURE_HEADER}When no categories are present, we can't find the required '<strong>There are no pages present.</strong>' markup in your index() view's output. Read the Chapter 6 exercises carefully.{FAILURE_FOOTER}")
-    
-    def test_sample_category(self):
-        """
-        Checks to see if the correct output is displayed when a sample Category object is added.
-        For this test, we disregard the instance variable response.
-        """
-        Category.objects.get_or_create(name='Test Category')
-        updated_response = self.client.get(reverse('rango:index')).content.decode()
-
-        category_regex = r'<li>(\s*|\n*)<a(\s+)href(\s*)=(\s*)("/rango/category/test-category/"|\'/rango/category/test-category/\')(\s*)>(\s*|\n*)Test Category(\s*|\n*)</a>(\s*|\n*)</li>'
-        self.assertTrue(re.search(category_regex, updated_response), f"{FAILURE_HEADER}When adding a test category, we couldn't find the markup for it in the output of the index() view. Check you have included all the code correctly for displaying categories.{FAILURE_FOOTER}")
-        self.assertIn('<strong>There are no pages present.</strong>', self.content, f"{FAILURE_HEADER}When no categories are present, we can't find the required '<strong>There are no pages present.</strong>' markup in your index() view's output. Read the Chapter 6 exercises carefully.{FAILURE_FOOTER}")
-
-class Chapter6CategoryViewTests(TestCase):
-    """
-    A series of tests for examining the show_category() view, looking at the context dictionary and rendered response.
-    We use the 'Other Frameworks' category for these tests to check the slugs work correctly, too.
-    """
-    def setUp(self):
         populate()
-        self.response = self.client.get(reverse('rango:show_category', kwargs={'category_name_slug': 'other-frameworks'}))
-        self.content = self.response.content.decode()
-    
-    def test_template_filename(self):
-        """
-        Still using a template?
-        """
-        self.assertTemplateUsed(self.response, 'rango/category.html', f"{FAILURE_HEADER}The category.html template is not used for the show_category() view. The specification requires this.{FAILURE_FOOTER}")
-    
-    def test_slug_functionality(self):
-        """
-        Runs a simple test by changing the name of the "Other Frameworks" category to "Unscrupulous Nonsense".
-        Checks to see whether the slug updates with the name change.
-        """
-        category = Category.objects.get_or_create(name='Other Frameworks')[0]
-        category.name = "Unscrupulous Nonsense"
-        category.save()
 
-        self.assertEquals('unscrupulous-nonsense', category.slug, f"{FAILURE_HEADER}When changing the name of a category, the slug attribute was not updated (correctly) to reflect this change. Did you override the save() method in the Category model correctly?{FAILURE_FOOTER}")
-
-    def test_context_dictionary(self):
-        """
-        Given the response, does the context dictionary match up with what is expected?
-        Is the category object being passed correctly, and are the pages being filtered correctly?
-        """
-        other_frameworks_category = Category.objects.get_or_create(name='Other Frameworks')[0]
-        page_list = list(Page.objects.filter(category=other_frameworks_category))
+        response = self.client.post(reverse('rango:add_category'),
+                                            {'name': 'Python', 'views': 0, 'likes': 0})
         
-        self.assertTrue('category' in self.response.context, f"{FAILURE_HEADER}The 'category' variable in the context dictionary for the show_category() view was not found. Did you spell it correctly?{FAILURE_FOOTER}")
-        self.assertTrue('pages' in self.response.context, f"{FAILURE_HEADER}The 'pages' variable in the context dictionary for the show_category() view was not found.{FAILURE_FOOTER}")
+        self.assertTrue('Category with this Name already exists.' in response.content.decode(), f"{FAILURE_HEADER}When attempting to add a category that already exists, we didn't get the error message we were expecting. Please check your add_category() view and add_category.html template.{FAILURE_FOOTER}")
 
-        self.assertEqual(self.response.context['category'], other_frameworks_category, f"{FAILURE_HEADER}The category returned in the context dictionary for the show_category() view did not match what was expected. We expect to see a Category object returned here (specifically the 'Other Frameworks' category, for our tests).{FAILURE_FOOTER}")
-        self.assertEqual(list(self.response.context['pages']), page_list, f"{FAILURE_HEADER}The list of pages returned in the context dictionary of the show_category() view was not correct. Did you filter the pages correctly in your view?{FAILURE_FOOTER}")
-    
-    def test_response_markup(self):
-        """
-        Some simple tests to make sure the markup returned is on track. Specifically, we look at the title and list of pages returned.
-        """
-        expected_header = '<h1>Other Frameworks</h1>'
-        bottle_markup = r'<li>(\s*|\n*)<a(\s+)href(\s*)=(\s*)("http://bottlepy.org/docs/dev/"|\'http://bottlepy.org/docs/dev/\')(\s*)>(\s*|\n*)Bottle(\s*|\n*)</a>(\s*|\n*)</li>'
-        flask_markup = r'<li>(\s*|\n*)<a(\s+)href(\s*)=(\s*)("http://flask.pocoo.org"|\'http://flask.pocoo.org\')(\s*)>(\s*|\n*)Flask(\s*|\n*)</a>(\s*|\n*)</li>'
-
-        self.assertIn(expected_header, self.content, f"{FAILURE_HEADER}The header tag '{expected_header}' was not found in the response for the show_category() view. Make sure the category.html template matches the specification.{FAILURE_FOOTER}")
-        self.assertTrue(re.search(bottle_markup, self.content), f"{FAILURE_HEADER}Correctly formed <li> markup was not found for the pages to be displayed in the show_category() view. Make sure your category.html template is well-formed!{FAILURE_FOOTER}")
-        self.assertTrue(re.search(flask_markup, self.content), f"{FAILURE_HEADER}Correctly formed <li> markup was not found for the pages to be displayed in the show_category() view. Make sure your category.html template is well-formed!{FAILURE_FOOTER}")
-
-    def test_for_homepage_link(self):
-        """
-        Checks to see if a hyperlink to the homepage is present.
-        We didn't enforce a strict label for the link; we are more interested here in correct syntax.
-        """
-        homepage_hyperlink_markup = r'<a(\s+)href="/rango/">(\w+)</a>'
-        self.assertTrue(re.search(homepage_hyperlink_markup, self.content), f"{FAILURE_HEADER}We couldn't find a well-formed hyperlink to the Rango homepage in your category.html template. This is an exercise at the end of Chapter 6.{FAILURE_FOOTER}")
-
-class Chapter6BadCategoryViewTests(TestCase):
+class Chapter7PageFormClassTests(TestCase):
     """
-    A few tests to examine some edge cases where categories do not exist, for example.
+    Checks whether the PageForm class has been implemented correctly.
     """
-    def test_malformed_url(self):
+    def test_page_form_class(self):
         """
-        Tests to see whether the URL patterns have been correctly entered; many students have fallen over at this one.
-        Somehow.
+        Does the PageForm implementation exist, and does it contain the correct instance variables?
         """
-        response = self.client.get('/rango/category/')
-        self.assertTrue(response.status_code == 404, f"{FAILURE_HEADER}The URL /rango/category/ should return a status of code of 404 (not found). Check to see whether you have correctly entered your urlpatterns.{FAILURE_FOOTER}")
+        # Check that we can import PageForm.
+        import rango.forms
+        self.assertTrue('PageForm' in dir(rango.forms), f"{FAILURE_HEADER}The class PageForm could not be found in Rango's forms.py module. Check you have created this class in the correct location, and try again.{FAILURE_FOOTER}")
 
-    def test_nonexistent_category(self):
-        """
-        Attempts to lookup a category that does not exist in the database and checks the response.
-        """
-        response = self.client.get(reverse('rango:show_category', kwargs={'category_name_slug': 'nonexistent-category'}))
-        lookup_string = 'The specified category does not exist.'
-        self.assertIn(lookup_string, response.content.decode(), r"{FAILURE_HEADER}The expected message when attempting to access a non-existent category was not found. Check your category.html template.{FAILURE_FOOTER}")
+        from rango.forms import PageForm
+        page_form = PageForm()
+
+        # Do you correctly link Page to PageForm?
+        self.assertEqual(type(page_form.__dict__['instance']), Page, f"{FAILURE_HEADER}The PageForm does not link to the Page model. Have a look in the PageForm's nested Meta class for the model attribute.{FAILURE_FOOTER}")
+
+        # Now check that all the required fields are present, and of the correct form field type.
+        fields = page_form.fields
+
+        expected_fields = {
+            'title': django_fields.CharField,
+            'url': django_fields.URLField,
+            'views': django_fields.IntegerField,
+        }
+
+        for expected_field_name in expected_fields:
+            expected_field = expected_fields[expected_field_name]
+
+            self.assertTrue(expected_field_name in fields.keys(), f"{FAILURE_HEADER}The field '{expected_field_name}' was not found in your PageForm implementation. Check you have all required fields, and try again.{FAILURE_FOOTER}")
+            self.assertEqual(expected_field, type(fields[expected_field_name]), f"{FAILURE_HEADER}The field '{expected_field_name}' in PageForm was not of the expected type '{type(fields[expected_field_name])}'.{FAILURE_FOOTER}")
     
-    def test_empty_category(self):
+class Chapter7PageFormAncillaryTests(TestCase):
+    """
+    Performs a series of tests to check the response of the server under different conditions when adding pages.
+    """
+    def test_add_page_url_mapping(self):
         """
-        Adds a Category without pages; checks to see what the response is.
+        Tests whether the URL mapping for adding a page is resolvable.
         """
-        category = Category.objects.get_or_create(name='Test Category')
-        response = self.client.get(reverse('rango:show_category', kwargs={'category_name_slug': 'test-category'}))
-        lookup_string = '<strong>No pages currently in category.</strong>'
-        self.assertIn(lookup_string, response.content.decode(), r"{FAILURE_HEADER}The expected message when accessing a category without pages was not found. Check your category.html template.{FAILURE_FOOTER}")
+        try:
+            resolved_url = reverse('rango:add_page', kwargs={'category_name_slug': 'python'})
+        except:
+            resolved_url = ''
+        
+        self.assertEqual(resolved_url, '/rango/category/python/add_page/', f"{FAILURE_HEADER}The lookup of URL name 'rango:add_page' didn't return a URL matching '/rango/category/python/add_page/', when using category 'python'. Check you have the correct mappings and URL parameters, and try again.{FAILURE_FOOTER}")
+    
+    def test_add_page_template(self):
+        """
+        Checks whether a template was used for the add_page() view.
+        """
+        populate()
+        response = self.client.get(reverse('rango:add_page', kwargs={'category_name_slug': 'python'}))
+        self.assertTemplateUsed(response, 'rango/add_page.html', f"{FAILURE_HEADER}The add_page.html template is not used for the add_page() view. The specification requires this.{FAILURE_FOOTER}")
+    
+    def test_add_page_form_response(self):
+        """
+        Checks whether the template rendering add_page() contains a form, and whether it points to the add_page view.
+        """
+        populate()
+        response = self.client.get(reverse('rango:add_page', kwargs={'category_name_slug': 'django'}))
+        context = response.context
+        content = response.content.decode()
+
+        self.assertTrue('<form' in content, f"{FAILURE_HEADER}We couldn't find a <form> element in the response for adding a page.{FAILURE_FOOTER}")
+        self.assertTrue('action="/rango/category/django/add_page/"' in content, f"{FAILURE_HEADER}We couldn't find the correct action URL for adding a page in your add_page.html template. We expected to see 'action=\"/rango/django/add_page/\"' when adding a page to the 'python' category.{FAILURE_FOOTER}")
+    
+    def test_add_page_bad_category(self):
+        """
+        Tests whether the response for adding a page when specifying a non-existent category is per the specification.
+        """
+        response = self.client.get(reverse('rango:add_page', kwargs={'category_name_slug': 'non-existent'}))
+
+        self.assertEquals(response.status_code, 302, f"{FAILURE_HEADER}When attempting to add a new page to a category that doesn't exist, we weren't redirected. We were expecting a redirect -- check you add_page() view.{FAILURE_FOOTER}")
+        self.assertEquals(response.url, '/rango/', f"{FAILURE_HEADER}When attempting to add a new page to a category that doesn't exist, we were not redirected to the Rango homepage. Check your add_page() view, and try again.{FAILURE_FOOTER}")
+
+    def test_add_page_functionality(self):
+        """
+        Given a category and a new page, tests whether the functionality implemented works as expected.
+        """
+        populate()
+
+        response = self.client.post(reverse('rango:add_page', kwargs={'category_name_slug': 'python'}),
+                                            {'title': 'New webpage', 'url': 'www.google.com', 'views': 0})
+
+        python_pages = Page.objects.filter(title='New webpage')
+        self.assertEqual(len(python_pages), 1, f"{FAILURE_HEADER}When adding a new page to a category with the add_page form, the new Page object that we were expecting wasn't created. Check your add_page() view for mistakes, and try again. You need to call .save() on the page you create!{FAILURE_FOOTER}")
+
+        page = python_pages[0]
+        self.assertEqual(page.url, 'http://www.google.com', f"{FAILURE_HEADER}We created a new page with a URL of 'www.google.com'. The saved object is expected to have a URL of 'http://www.google.com'. Is your clean() method in PageForm working correctly?{FAILURE_FOOTER}")
+        self.assertEqual(page.title, 'New webpage', f"{FAILURE_HEADER}The new page we created didn't have the title we specified in the add_page form. Are you missing something in your PageForm implementation?{FAILURE_FOOTER}")
