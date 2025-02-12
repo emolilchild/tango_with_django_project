@@ -1,16 +1,16 @@
 # 
 # Tango with Django 2 Progress Tests
 # By Leif Azzopardi and David Maxwell
-# With assistance from Enzo Roiz (https://github.com/enzoroiz) and Gerardo A-C (https://github.com/gerac83)
+# With assistance from Gerardo A-C (https://github.com/gerac83) and Enzo Roiz (https://github.com/enzoroiz)
 # 
-# Chapter 7 -- Forms
-# Last updated: January 7th, 2020
+# Chapter 8 -- Working with Templates
+# Last updated: February 6th, 2020
 # Revising Author: David Maxwell
 # 
 
 #
 # In order to run these tests, copy this module to your tango_with_django_project/rango/ directory.
-# Once this is complete, run $ python manage.py test rango.tests_chapter7
+# Once this is complete, run $ python manage.py test rango.tests_chapter8
 # 
 # The tests will then be run, and the output displayed -- do you pass them all?
 # 
@@ -18,10 +18,12 @@
 #
 
 import os
+import re
 import inspect
 from rango.models import Category, Page
 from populate_rango import populate
 from django.test import TestCase
+from django.conf import settings
 from django.urls import reverse, resolve
 from django.forms import fields as django_fields
 
@@ -29,207 +31,114 @@ FAILURE_HEADER = f"{os.linesep}{os.linesep}{os.linesep}================{os.lines
 FAILURE_FOOTER = f"{os.linesep}"
 
 
-class Chapter7FormClassTests(TestCase):
+class Chapter8TemplateTests(TestCase):
     """
-    Do the Form classes exist, and do they contain the correct instance variables?
+    I don't think it's possible to test every aspect of templates from this chapter without delving into some crazy string checking.
+    So, instead, we can do some simple tests here: check that the base template exists, and that each page in the templates/rango directory has a title block.
+    Based on the idea by Gerardo -- beautiful idea, cheers big man.
     """
-    def test_module_exists(self):
+    def get_template(self, path_to_template):
         """
-        Tests that the forms.py module exists in the expected location.
+        Helper function to return the string representation of a template file.
         """
-        project_path = os.getcwd()
-        rango_app_path = os.path.join(project_path, 'rango')
-        forms_module_path = os.path.join(rango_app_path, 'forms.py')
+        f = open(path_to_template, 'r')
+        template_str = ""
 
-        self.assertTrue(os.path.exists(forms_module_path), f"{FAILURE_HEADER}We couldn't find Rango's new forms.py module. This is required to be created at the top of Section 7.2. This module should be storing your two form classes.{FAILURE_FOOTER}")
+        for line in f:
+            template_str = f"{template_str}{line}"
+
+        f.close()
+        return template_str
     
-    def test_category_form_class(self):
+    def test_base_template_exists(self):
         """
-        Does the CategoryForm implementation exist, and does it contain the correct instance variables?
+        Tests whether the base template exists.
         """
-        # Check that we can import CategoryForm.
-        import rango.forms
-        self.assertTrue('CategoryForm' in dir(rango.forms), f"{FAILURE_HEADER}The class CategoryForm could not be found in Rango's forms.py module. Check you have created this class in the correct location, and try again.{FAILURE_FOOTER}")
+        template_base_path = os.path.join(settings.TEMPLATE_DIR, 'rango', 'base.html')
+        self.assertTrue(os.path.exists(template_base_path), f"{FAILURE_HEADER}We couldn't find the new base.html template that's required in the templates/rango directory. Did you create the template in the right place?{FAILURE_FOOTER}")
+    
+    def test_base_title_block(self):
+        """
+        Checks if Rango's new base template has the correct value for the base template.
+        """
+        template_base_path = os.path.join(settings.TEMPLATE_DIR, 'rango', 'base.html')
+        template_str = self.get_template(template_base_path)
+        
+        title_pattern = r'<title>(\s*|\n*)Rango(\s*|\n*)-(\s*|\n*){% block title_block %}(\s*|\n*)How to Tango with Django!(\s*|\n*){% (endblock|endblock title_block) %}(\s*|\n*)</title>'
+        self.assertTrue(re.search(title_pattern, template_str), f"{FAILURE_HEADER}When searching the contents of base.html, we couldn't find the expected title block. We're looking for '<title>Rango - {{% block title_block %}}How to Tango with Django!{{% endblock %}}</title>' with any combination of whitespace.{FAILURE_FOOTER}")
+    
+    def test_template_usage(self):
+        """
+        Check that each view uses the correct template.
+        """
+        populate()
+        
+        urls = [reverse('rango:about'),
+                reverse('rango:add_category'),
+                reverse('rango:add_page', kwargs={'category_name_slug': 'python'}),
+                reverse('rango:show_category', kwargs={'category_name_slug': 'python'}),
+                reverse('rango:index'),]
 
-        from rango.forms import CategoryForm
-        category_form = CategoryForm()
+        templates = ['rango/about.html',
+                     'rango/add_category.html',
+                     'rango/add_page.html',
+                     'rango/category.html',
+                     'rango/index.html',]
+        
+        for url, template in zip(urls, templates):
+            response = self.client.get(url)
+            self.assertTemplateUsed(response, template)
 
-        # Do you correctly link Category to CategoryForm?
-        self.assertEqual(type(category_form.__dict__['instance']), Category, f"{FAILURE_HEADER}The CategoryForm does not link to the Category model. Have a look in the CategoryForm's nested Meta class for the model attribute.{FAILURE_FOOTER}")
-
-        # Now check that all the required fields are present, and of the correct form field type.
-        fields = category_form.fields
-
-        expected_fields = {
-            'name': django_fields.CharField,
-            'views': django_fields.IntegerField,
-            'likes': django_fields.IntegerField,
-            'slug': django_fields.CharField,
+    def test_title_blocks(self):
+        """
+        Tests whether the title blocks in each page are the expected values.
+        This is probably the easiest way to check for blocks.
+        """
+        populate()
+        template_base_path = os.path.join(settings.TEMPLATE_DIR, 'rango')
+        
+        mappings = {
+            reverse('rango:about'): {'full_title_pattern': r'<title>(\s*|\n*)Rango(\s*|\n*)-(\s*|\n*)About Rango(\s*|\n*)</title>',
+                                     'block_title_pattern': r'{% block title_block %}(\s*|\n*)About Rango(\s*|\n*){% (endblock|endblock title_block) %}',
+                                     'template_filename': 'about.html'},
+            reverse('rango:add_category'): {'full_title_pattern': r'<title>(\s*|\n*)Rango(\s*|\n*)-(\s*|\n*)Add a Category(\s*|\n*)</title>',
+                                            'block_title_pattern': r'{% block title_block %}(\s*|\n*)Add a Category(\s*|\n*){% (endblock|endblock title_block) %}',
+                                            'template_filename': 'add_category.html'},
+            reverse('rango:add_page', kwargs={'category_name_slug': 'python'}): {'full_title_pattern': r'<title>(\s*|\n*)Rango(\s*|\n*)-(\s*|\n*)Add a Page(\s*|\n*)</title>',
+                                                                                 'block_title_pattern': r'{% block title_block %}(\s*|\n*)Add a Page(\s*|\n*){% (endblock|endblock title_block) %}',
+                                                                                 'template_filename': 'add_page.html'},
+            reverse('rango:show_category', kwargs={'category_name_slug': 'python'}): {'full_title_pattern': r'<title>(\s*|\n*)Rango(\s*|\n*)-(\s*|\n*)Python(\s*|\n*)</title>',
+                                                                                      'block_title_pattern': r'{% block title_block %}(\s*|\n*){% if category %}(\s*|\n*){{ category.name }}(\s*|\n*){% else %}(\s*|\n*)Unknown Category(\s*|\n*){% endif %}(\s*|\n*){% (endblock|endblock title_block) %}',
+                                                                                      'template_filename': 'category.html'},
+            reverse('rango:index'): {'full_title_pattern': r'<title>(\s*|\n*)Rango(\s*|\n*)-(\s*|\n*)Homepage(\s*|\n*)</title>',
+                                     'block_title_pattern': r'{% block title_block %}(\s*|\n*)Homepage(\s*|\n*){% (endblock|endblock title_block) %}',
+                                     'template_filename': 'index.html'},
         }
 
-        for expected_field_name in expected_fields:
-            expected_field = expected_fields[expected_field_name]
+        for url in mappings.keys():
+            full_title_pattern = mappings[url]['full_title_pattern']
+            template_filename = mappings[url]['template_filename']
+            block_title_pattern = mappings[url]['block_title_pattern']
 
-            self.assertTrue(expected_field_name in fields.keys(), f"{FAILURE_HEADER}The field '{expected_field_name}' was not found in your CategoryForm implementation. Check you have all required fields, and try again.{FAILURE_FOOTER}")
-            self.assertEqual(expected_field, type(fields[expected_field_name]), f"{FAILURE_HEADER}The field '{expected_field_name}' in CategoryForm was not of the expected type '{type(fields[expected_field_name])}'.{FAILURE_FOOTER}")
+            request = self.client.get(url)
+            content = request.content.decode('utf-8')
+            template_str = self.get_template(os.path.join(template_base_path, template_filename))
 
-class Chapter7CategoryFormAncillaryTests(TestCase):
-    """
-    Performs checks to see if all the additional requirements in Chapter 7 for adding a CategoryForm have been implemented correctly.
-    Checks URL mappings and server output.
-    """
-    def test_add_category_url_mapping(self):
+            self.assertTrue(re.search(full_title_pattern, content), f"{FAILURE_HEADER}When looking at the response of GET '{url}', we couldn't find the correct <title> block. Check the exercises on Chapter 8 for the expected title.{FAILURE_FOOTER}")
+            self.assertTrue(re.search(block_title_pattern, template_str), f"{FAILURE_HEADER}When looking at the source of template '{template_filename}', we couldn't find the correct template block. Are you using template inheritence correctly, and did you spell the title as in the book? Check the exercises on Chapter 8 for the expected title.{FAILURE_FOOTER}")
+    
+    def test_for_links_in_base(self):
         """
-        Tests whether the URL mapping for adding a category is resolvable.
+        There should be three hyperlinks in base.html, as per the specification of the book.
+        Check for their presence, along with correct use of URL lookups.
         """
-        try:
-            resolved_name = resolve('/rango/add_category/').view_name
-        except:
-            resolved_name = ''
+        template_str = self.get_template(os.path.join(settings.TEMPLATE_DIR, 'rango', 'base.html'))
+
+        look_for = [
+            '<a href="{% url \'rango:add_category\' %}">Add a New Category</a>',
+            '<a href="{% url \'rango:about\' %}">About</a>',
+            '<a href="{% url \'rango:index\' %}">Index</a>',
+        ]
         
-        self.assertEqual(resolved_name, 'rango:add_category', f"{FAILURE_HEADER}The lookup of URL '/rango/add_category/' didn't return a mapping name of 'rango:add_category'. Check you have the correct URL mapping for adding a category, and try again.{FAILURE_FOOTER}")
-    
-    def test_index_link_added(self):
-        """
-        Checks whether a link has been added as required on the index page, taking a user to the add category page.
-        """
-        response = self.client.get(reverse('rango:index'))
-        content = response.content.decode()
-
-        self.assertTrue('<a href="/rango/add_category/">Add a New Category</a><br />' in content)
-
-    def test_add_category_template(self):
-        """
-        Checks whether a template was used for the add_category() view.
-        """
-        response = self.client.get(reverse('rango:add_category'))
-        self.assertTemplateUsed(response, 'rango/add_category.html', f"{FAILURE_HEADER}The add_category.html template is not used for the add_category() view. The specification requires this.{FAILURE_FOOTER}")
-
-    def test_add_category_form_response(self):
-        """
-        Checks the response from the initial add category response (i.e. check the page/form is correct).
-        """
-        response = self.client.get(reverse('rango:add_category'))
-        context = response.context
-        content = response.content.decode()
-
-        self.assertTrue('form' in context)
-
-        self.assertTrue('<h1>Add a Category</h1>' in content, f"{FAILURE_HEADER}Couldn't find 'Add a Category' header in the add_category() response. Check the template add_category.html.{FAILURE_FOOTER}")
-        self.assertTrue('name="name"' in content, f"{FAILURE_HEADER}We couldn't find the form field 'name' in the rendered add_category() response. Check that your form is being created correctly.{FAILURE_FOOTER}")
-        self.assertTrue('<input type="submit" name="submit" value="Create Category" />' in content, f"{FAILURE_HEADER}Couldn't find the button for 'Create Category' in the add_category() response. Check the template add_category.html.{FAILURE_FOOTER}")
-        self.assertTrue('action="/rango/add_category/"' in content, f"{FAILURE_HEADER}Couldn't find the correct action URL for the form in add_category.html. Check that the correct URL is provided!{FAILURE_FOOTER}")
-    
-    def test_add_category_functionality(self):
-        """
-        Adds a category using the form, submits the request, and checks that the new category then exists.
-        """
-        self.client.post(reverse('rango:add_category'),
-                         {'name': 'Erlang', 'views': 0, 'likes': 0})
-        
-        categories = Category.objects.filter(name='Erlang')
-        self.assertEqual(len(categories), 1, f"{FAILURE_HEADER}When adding a new category, it does not appear in the list of categories after being created. Check your add_category() view as the start of a debugging point.{FAILURE_FOOTER}")
-    
-    def test_category_exists(self):
-        """
-        Attempts to add a category that already exists.
-        """
-        populate()
-
-        response = self.client.post(reverse('rango:add_category'),
-                                            {'name': 'Python', 'views': 0, 'likes': 0})
-        
-        self.assertTrue('Category with this Name already exists.' in response.content.decode(), f"{FAILURE_HEADER}When attempting to add a category that already exists, we didn't get the error message we were expecting. Please check your add_category() view and add_category.html template.{FAILURE_FOOTER}")
-
-class Chapter7PageFormClassTests(TestCase):
-    """
-    Checks whether the PageForm class has been implemented correctly.
-    """
-    def test_page_form_class(self):
-        """
-        Does the PageForm implementation exist, and does it contain the correct instance variables?
-        """
-        # Check that we can import PageForm.
-        import rango.forms
-        self.assertTrue('PageForm' in dir(rango.forms), f"{FAILURE_HEADER}The class PageForm could not be found in Rango's forms.py module. Check you have created this class in the correct location, and try again.{FAILURE_FOOTER}")
-
-        from rango.forms import PageForm
-        page_form = PageForm()
-
-        # Do you correctly link Page to PageForm?
-        self.assertEqual(type(page_form.__dict__['instance']), Page, f"{FAILURE_HEADER}The PageForm does not link to the Page model. Have a look in the PageForm's nested Meta class for the model attribute.{FAILURE_FOOTER}")
-
-        # Now check that all the required fields are present, and of the correct form field type.
-        fields = page_form.fields
-
-        expected_fields = {
-            'title': django_fields.CharField,
-            'url': django_fields.URLField,
-            'views': django_fields.IntegerField,
-        }
-
-        for expected_field_name in expected_fields:
-            expected_field = expected_fields[expected_field_name]
-
-            self.assertTrue(expected_field_name in fields.keys(), f"{FAILURE_HEADER}The field '{expected_field_name}' was not found in your PageForm implementation. Check you have all required fields, and try again.{FAILURE_FOOTER}")
-            self.assertEqual(expected_field, type(fields[expected_field_name]), f"{FAILURE_HEADER}The field '{expected_field_name}' in PageForm was not of the expected type '{type(fields[expected_field_name])}'.{FAILURE_FOOTER}")
-    
-class Chapter7PageFormAncillaryTests(TestCase):
-    """
-    Performs a series of tests to check the response of the server under different conditions when adding pages.
-    """
-    def test_add_page_url_mapping(self):
-        """
-        Tests whether the URL mapping for adding a page is resolvable.
-        """
-        try:
-            resolved_url = reverse('rango:add_page', kwargs={'category_name_slug': 'python'})
-        except:
-            resolved_url = ''
-        
-        self.assertEqual(resolved_url, '/rango/category/python/add_page/', f"{FAILURE_HEADER}The lookup of URL name 'rango:add_page' didn't return a URL matching '/rango/category/python/add_page/', when using category 'python'. Check you have the correct mappings and URL parameters, and try again.{FAILURE_FOOTER}")
-    
-    def test_add_page_template(self):
-        """
-        Checks whether a template was used for the add_page() view.
-        """
-        populate()
-        response = self.client.get(reverse('rango:add_page', kwargs={'category_name_slug': 'python'}))
-        self.assertTemplateUsed(response, 'rango/add_page.html', f"{FAILURE_HEADER}The add_page.html template is not used for the add_page() view. The specification requires this.{FAILURE_FOOTER}")
-    
-    def test_add_page_form_response(self):
-        """
-        Checks whether the template rendering add_page() contains a form, and whether it points to the add_page view.
-        """
-        populate()
-        response = self.client.get(reverse('rango:add_page', kwargs={'category_name_slug': 'django'}))
-        context = response.context
-        content = response.content.decode()
-
-        self.assertTrue('<form' in content, f"{FAILURE_HEADER}We couldn't find a <form> element in the response for adding a page.{FAILURE_FOOTER}")
-        self.assertTrue('action="/rango/category/django/add_page/"' in content, f"{FAILURE_HEADER}We couldn't find the correct action URL for adding a page in your add_page.html template. We expected to see 'action=\"/rango/django/add_page/\"' when adding a page to the 'python' category.{FAILURE_FOOTER}")
-    
-    def test_add_page_bad_category(self):
-        """
-        Tests whether the response for adding a page when specifying a non-existent category is per the specification.
-        """
-        response = self.client.get(reverse('rango:add_page', kwargs={'category_name_slug': 'non-existent'}))
-
-        self.assertEquals(response.status_code, 302, f"{FAILURE_HEADER}When attempting to add a new page to a category that doesn't exist, we weren't redirected. We were expecting a redirect -- check you add_page() view.{FAILURE_FOOTER}")
-        self.assertEquals(response.url, '/rango/', f"{FAILURE_HEADER}When attempting to add a new page to a category that doesn't exist, we were not redirected to the Rango homepage. Check your add_page() view, and try again.{FAILURE_FOOTER}")
-
-    def test_add_page_functionality(self):
-        """
-        Given a category and a new page, tests whether the functionality implemented works as expected.
-        """
-        populate()
-
-        response = self.client.post(reverse('rango:add_page', kwargs={'category_name_slug': 'python'}),
-                                            {'title': 'New webpage', 'url': 'www.google.com', 'views': 0})
-
-        python_pages = Page.objects.filter(title='New webpage')
-        self.assertEqual(len(python_pages), 1, f"{FAILURE_HEADER}When adding a new page to a category with the add_page form, the new Page object that we were expecting wasn't created. Check your add_page() view for mistakes, and try again. You need to call .save() on the page you create!{FAILURE_FOOTER}")
-
-        page = python_pages[0]
-        self.assertEqual(page.url, 'http://www.google.com', f"{FAILURE_HEADER}We created a new page with a URL of 'www.google.com'. The saved object is expected to have a URL of 'http://www.google.com'. Is your clean() method in PageForm working correctly?{FAILURE_FOOTER}")
-        self.assertEqual(page.title, 'New webpage', f"{FAILURE_HEADER}The new page we created didn't have the title we specified in the add_page form. Are you missing something in your PageForm implementation?{FAILURE_FOOTER}")
+        for lookup in look_for:
+            self.assertTrue(lookup in template_str, f"{FAILURE_HEADER}In base.html, we couldn't find the hyperlink '{lookup}'. Check your markup in base.html is correct and as written in the book.{FAILURE_FOOTER}")
