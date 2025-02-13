@@ -29,11 +29,13 @@ def index(request):
     
 def about(request):
     visitor_cookie_handler(request)
+    visits = request.session.get('visits', 1)
     
-    visits = request.session.get('visits', 0)
     context_dict = {'boldmessage' : 'This tutorial has been put together by Andrea',
-                    'MEDIA_URL' : settings.MEDIA_URL}
-    context_dict['visits'] = visits
+                    'MEDIA_URL' : settings.MEDIA_URL,
+                    'visits':visits,
+                    }
+    
         
     return render(request, 'rango/about.html', context=context_dict)
 
@@ -166,15 +168,16 @@ def get_server_side_cookie(request, cookie, default_val=None):
     return val
 
 def visitor_cookie_handler(request):
+    visits = request.session.get('visits', 1)
     last_visit = request.session.get('last_visit', str(datetime.now()))
     last_visit_time = datetime.strptime(last_visit, '%Y-%m-%d %H:%M:%S.%f')
 
-    if (datetime.now() - last_visit_time) > timedelta(days=1):
-        request.session['visits'] = request.session.get('visits', 0) + 1
+    if (datetime.now() - last_visit_time).days > 0:
+        visits += 1
         request.session['last_visit'] = str(datetime.now())
     else:
         request.session['last_visit'] = last_visit
 
-    
+    request.session['visits'] = visits
                     
         
