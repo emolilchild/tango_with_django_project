@@ -3,14 +3,14 @@
 # By Leif Azzopardi and David Maxwell
 # With assistance from Gerardo A-C (https://github.com/gerac83) and Enzo Roiz (https://github.com/enzoroiz)
 # 
-# Chapter 8 -- Working with Templates
-# Last updated: February 6th, 2020
+# Chapter 10 -- Cookies and Sessions
+# Last updated: January 10th, 2020
 # Revising Author: David Maxwell
 # 
 
 #
 # In order to run these tests, copy this module to your tango_with_django_project/rango/ directory.
-# Once this is complete, run $ python manage.py test rango.tests_chapter8
+# Once this is complete, run $ python manage.py test rango.tests_chapter10
 # 
 # The tests will then be run, and the output displayed -- do you pass them all?
 # 
@@ -19,126 +19,96 @@
 
 import os
 import re
-import inspect
-from rango.models import Category, Page
+import rango.models
+from rango import forms
 from populate_rango import populate
+from datetime import datetime, timedelta
+from django.db import models
 from django.test import TestCase
 from django.conf import settings
 from django.urls import reverse, resolve
+from django.contrib.auth.models import User
 from django.forms import fields as django_fields
 
 FAILURE_HEADER = f"{os.linesep}{os.linesep}{os.linesep}================{os.linesep}TwD TEST FAILURE =({os.linesep}================{os.linesep}"
 FAILURE_FOOTER = f"{os.linesep}"
 
+f"{FAILURE_HEADER} {FAILURE_FOOTER}"
 
-class Chapter8TemplateTests(TestCase):
+
+class Chapter10ConfigurationTests(TestCase):
     """
-    I don't think it's possible to test every aspect of templates from this chapter without delving into some crazy string checking.
-    So, instead, we can do some simple tests here: check that the base template exists, and that each page in the templates/rango directory has a title block.
-    Based on the idea by Gerardo -- beautiful idea, cheers big man.
+    Tests the configuration of the Django project -- can cookies be used, at least on the server-side?
     """
-    def get_template(self, path_to_template):
+    def test_middleware_present(self):
         """
-        Helper function to return the string representation of a template file.
+        Tests to see if the SessionMiddleware is present in the project configuration.
         """
-        f = open(path_to_template, 'r')
-        template_str = ""
-
-        for line in f:
-            template_str = f"{template_str}{line}"
-
-        f.close()
-        return template_str
+        self.assertTrue('django.contrib.sessions.middleware.SessionMiddleware' in settings.MIDDLEWARE)
     
-    def test_base_template_exists(self):
+    def test_session_app_present(self):
         """
-        Tests whether the base template exists.
+        Tests to see if the sessions app is present.
         """
-        template_base_path = os.path.join(settings.TEMPLATE_DIR, 'rango', 'base.html')
-        self.assertTrue(os.path.exists(template_base_path), f"{FAILURE_HEADER}We couldn't find the new base.html template that's required in the templates/rango directory. Did you create the template in the right place?{FAILURE_FOOTER}")
+        self.assertTrue('django.contrib.sessions' in settings.INSTALLED_APPS)
+
+
+class Chapter10SessionPersistenceTests(TestCase):
+    """
+    Tests to see if session data is persisted by counting up the number of accesses, and examining last time since access.
+    """
+    def test_visits_counter(self):
+        """
+        Tests the visits counter.
+        Artificially tweaks the last_visit variable to force a counter increment.
+        """
+        for i in range(0, 10):
+            response = self.client.get(reverse('rango:index'))
+            session = self.client.session
+
+            self.assertIsNotNone(session['visits'])
+            self.assertIsNotNone(session['last_visit'])
+
+            # Get the last visit, and subtract one day.
+            # Forces an increment of the counter.
+            last_visit = datetime.now() - timedelta(days=1)
+
+            session['last_visit'] = str(last_visit)
+            session.save()
+
+            self.assertEquals(session['visits'], i+1)
+
+class Chapter10ViewTests(TestCase):
+    """
+    Tests the views manipulated for Chapter 10.
+    Specifically, we look for changes to the index and about views.
+    """
+    def test_index_view(self):
+        """
+        Checks that the index view doesn't contain any presentational logic for showing the number of visits.
+        This should be removed in the final exercise.
+        """
+        response = self.client.get(reverse('rango:index'))
+        content = response.content.decode()
+
+        self.assertTrue('visits:' not in content.lower(), f"{FAILURE_HEADER}The index.html template should not contain any logic for displaying the number of views. Did you complete the exercises?{FAILURE_FOOTER}")
     
-    def test_base_title_block(self):
+    def test_about_view(self):
         """
-        Checks if Rango's new base template has the correct value for the base template.
+        Checks to see if the about view has the correct presentation for showing the number of visits.
         """
-        template_base_path = os.path.join(settings.TEMPLATE_DIR, 'rango', 'base.html')
-        template_str = self.get_template(template_base_path)
-        
-        title_pattern = r'<title>(\s*|\n*)Rango(\s*|\n*)-(\s*|\n*){% block title_block %}(\s*|\n*)How to Tango with Django!(\s*|\n*){% (endblock|endblock title_block) %}(\s*|\n*)</title>'
-        self.assertTrue(re.search(title_pattern, template_str), f"{FAILURE_HEADER}When searching the contents of base.html, we couldn't find the expected title block. We're looking for '<title>Rango - {{% block title_block %}}How to Tango with Django!{{% endblock %}}</title>' with any combination of whitespace.{FAILURE_FOOTER}")
+        response = self.client.get(reverse('rango:index'))  # Call this first to ensure the counter is set.
+        response = self.client.get(reverse('rango:about'))
+        content = response.content.decode()
+
+        self.assertTrue('Visits: 1' in content, f"{FAILURE_HEADER}In your about.html template, please check that you have the correct output for displaying the number of visits. Capital letters matter. Otherwise, check your about() view and the cookie handling logic.{FAILURE_FOOTER}")
     
-    def test_template_usage(self):
+    def test_visits_passed_via_context(self):
         """
-        Check that each view uses the correct template.
+        Checks that the context dictionary contains the correct values.
         """
-        populate()
-        
-        urls = [reverse('rango:about'),
-                reverse('rango:add_category'),
-                reverse('rango:add_page', kwargs={'category_name_slug': 'python'}),
-                reverse('rango:show_category', kwargs={'category_name_slug': 'python'}),
-                reverse('rango:index'),]
+        response = self.client.get(reverse('rango:index'))  # Set the counter!
+        self.assertNotIn('visits', response.context, f"{FAILURE_HEADER}The 'visits' variable appeared in the context dictionary passed by index(). This should be removed, as per the exercises for Chapter 10.{FAILURE_FOOTER}")
 
-        templates = ['rango/about.html',
-                     'rango/add_category.html',
-                     'rango/add_page.html',
-                     'rango/category.html',
-                     'rango/index.html',]
-        
-        for url, template in zip(urls, templates):
-            response = self.client.get(url)
-            self.assertTemplateUsed(response, template)
-
-    def test_title_blocks(self):
-        """
-        Tests whether the title blocks in each page are the expected values.
-        This is probably the easiest way to check for blocks.
-        """
-        populate()
-        template_base_path = os.path.join(settings.TEMPLATE_DIR, 'rango')
-        
-        mappings = {
-            reverse('rango:about'): {'full_title_pattern': r'<title>(\s*|\n*)Rango(\s*|\n*)-(\s*|\n*)About Rango(\s*|\n*)</title>',
-                                     'block_title_pattern': r'{% block title_block %}(\s*|\n*)About Rango(\s*|\n*){% (endblock|endblock title_block) %}',
-                                     'template_filename': 'about.html'},
-            reverse('rango:add_category'): {'full_title_pattern': r'<title>(\s*|\n*)Rango(\s*|\n*)-(\s*|\n*)Add a Category(\s*|\n*)</title>',
-                                            'block_title_pattern': r'{% block title_block %}(\s*|\n*)Add a Category(\s*|\n*){% (endblock|endblock title_block) %}',
-                                            'template_filename': 'add_category.html'},
-            reverse('rango:add_page', kwargs={'category_name_slug': 'python'}): {'full_title_pattern': r'<title>(\s*|\n*)Rango(\s*|\n*)-(\s*|\n*)Add a Page(\s*|\n*)</title>',
-                                                                                 'block_title_pattern': r'{% block title_block %}(\s*|\n*)Add a Page(\s*|\n*){% (endblock|endblock title_block) %}',
-                                                                                 'template_filename': 'add_page.html'},
-            reverse('rango:show_category', kwargs={'category_name_slug': 'python'}): {'full_title_pattern': r'<title>(\s*|\n*)Rango(\s*|\n*)-(\s*|\n*)Python(\s*|\n*)</title>',
-                                                                                      'block_title_pattern': r'{% block title_block %}(\s*|\n*){% if category %}(\s*|\n*){{ category.name }}(\s*|\n*){% else %}(\s*|\n*)Unknown Category(\s*|\n*){% endif %}(\s*|\n*){% (endblock|endblock title_block) %}',
-                                                                                      'template_filename': 'category.html'},
-            reverse('rango:index'): {'full_title_pattern': r'<title>(\s*|\n*)Rango(\s*|\n*)-(\s*|\n*)Homepage(\s*|\n*)</title>',
-                                     'block_title_pattern': r'{% block title_block %}(\s*|\n*)Homepage(\s*|\n*){% (endblock|endblock title_block) %}',
-                                     'template_filename': 'index.html'},
-        }
-
-        for url in mappings.keys():
-            full_title_pattern = mappings[url]['full_title_pattern']
-            template_filename = mappings[url]['template_filename']
-            block_title_pattern = mappings[url]['block_title_pattern']
-
-            request = self.client.get(url)
-            content = request.content.decode('utf-8')
-            template_str = self.get_template(os.path.join(template_base_path, template_filename))
-
-            self.assertTrue(re.search(full_title_pattern, content), f"{FAILURE_HEADER}When looking at the response of GET '{url}', we couldn't find the correct <title> block. Check the exercises on Chapter 8 for the expected title.{FAILURE_FOOTER}")
-            self.assertTrue(re.search(block_title_pattern, template_str), f"{FAILURE_HEADER}When looking at the source of template '{template_filename}', we couldn't find the correct template block. Are you using template inheritence correctly, and did you spell the title as in the book? Check the exercises on Chapter 8 for the expected title.{FAILURE_FOOTER}")
-    
-    def test_for_links_in_base(self):
-        """
-        There should be three hyperlinks in base.html, as per the specification of the book.
-        Check for their presence, along with correct use of URL lookups.
-        """
-        template_str = self.get_template(os.path.join(settings.TEMPLATE_DIR, 'rango', 'base.html'))
-
-        look_for = [
-            '<a href="{% url \'rango:add_category\' %}">Add a New Category</a>',
-            '<a href="{% url \'rango:about\' %}">About</a>',
-            '<a href="{% url \'rango:index\' %}">Index</a>',
-        ]
-        
-        for lookup in look_for:
-            self.assertTrue(lookup in template_str, f"{FAILURE_HEADER}In base.html, we couldn't find the hyperlink '{lookup}'. Check your markup in base.html is correct and as written in the book.{FAILURE_FOOTER}")
+        response = self.client.get(reverse('rango:about'))
+        self.assertIn('visits', response.context, f"{FAILURE_HEADER}We couldn't find the 'visits' variable in the context dictionary for about(). Check your about() implementation.{FAILURE_FOOTER}")
